@@ -1,22 +1,38 @@
-import streamlit as st
+import streamlit as st 
 import numpy as np
 import tensorflow as tf
 from PIL import Image
 
-# Load model
-model = tf.keras.models.load_model('topeng_model.h5')
+# Load TFLite model
+interpreter = tf.lite.Interpreter(model_path="topeng_model_quant.tflite")
+interpreter.allocate_tensors()
+
+# Ambil detail tensor input/output
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
 
 # Kelas topeng Bali
 class_names = ['keras', 'penasar', 'wijil', 'tua', 'bujuh', 'dalem', 'sidakarya']
 
 # Preprocessing gambar
 def preprocess_image(image: Image.Image) -> np.ndarray:
-    image = image.resize((224, 224))  # Ukuran input model
-    img_array = np.array(image)
+    image = image.resize((224, 224))
+    img_array = np.array(image).astype(np.float32)
     if img_array.shape[-1] == 4:  # RGBA ke RGB
         img_array = img_array[:, :, :3]
     img_array = img_array / 255.0
     return np.expand_dims(img_array, axis=0)
+
+# Fungsi prediksi dengan TFLite
+def predict_with_tflite(image_array: np.ndarray) -> (str, float):
+    # Sesuaikan dtype input
+    input_data = image_array.astype(input_details[0]['dtype'])
+    interpreter.set_tensor(input_details[0]['index'], input_data)
+    interpreter.invoke()
+    output_data = interpreter.get_tensor(output_details[0]['index'])
+    predicted_index = np.argmax(output_data)
+    confidence = float(np.max(output_data)) * 100
+    return class_names[predicted_index], confidence
 
 # Konfigurasi halaman
 st.set_page_config(
@@ -64,10 +80,7 @@ elif menu == "Prediksi":
 
         with st.spinner("⏳ Memproses gambar..."):
             processed_image = preprocess_image(image)
-            predictions = model.predict(processed_image)
-            predicted_index = np.argmax(predictions)
-            predicted_class = class_names[predicted_index]
-            confidence = float(np.max(predictions)) * 100
+            predicted_class, confidence = predict_with_tflite(processed_image)
 
         st.markdown("---")
         st.subheader("📌 Hasil Prediksi")
@@ -79,4 +92,3 @@ elif menu == "Prediksi":
 
         st.markdown("---")
         st.info("💡 Tips: Gunakan gambar dengan pencahayaan baik dan posisi topeng yang jelas.")
-
